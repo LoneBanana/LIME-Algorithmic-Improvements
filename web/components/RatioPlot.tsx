@@ -25,7 +25,8 @@ export default function RatioPlot({ comparisons, metrics }: Props) {
   const W = width;
   const top = 26;
   const H = top + comp.rows.length * ROW + 34;
-  const x = scaleLog([0.01, 5], [labelW + 8, W - 14]);
+  const valueW = narrow ? 0 : 56; // right-hand column for the printed ratios, clear of the dots
+  const x = scaleLog([0.01, 5], [labelW + 8, W - 14 - valueW]);
   const ticks = [0.01, 0.03, 0.1, 0.3, 1, 3];
   const color = comp.a.startsWith("ArcTanh") ? "var(--atl)" : "var(--lime)";
 
