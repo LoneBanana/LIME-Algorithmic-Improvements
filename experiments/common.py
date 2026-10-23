@@ -176,6 +176,9 @@ def get_setting(name: str) -> Setting:
         title = {"friedman_oracle": "Friedman #1 - true function", "friedman_mlp": "Friedman #1 - MLP"}[name]
         s = Setting(name, title, f, 10, training_scale(Xtr), [(0.0, 1.0)] * 10, Xte[40:40 + GLOBAL_POINTS],
                     Xte[:40], True, "regression")
+    elif name.startswith("dia_"):
+        from .diabetes import make_setting
+        s = make_setting(name)
     else:
         raise KeyError(name)
     _CACHE[name] = s
