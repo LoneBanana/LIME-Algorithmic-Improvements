@@ -12,7 +12,7 @@ from atlime.lime import default_kernel_width, select_features
 from atlime.linalg import solve_spd, weighted_r2, weighted_ridge
 from atlime.metrics import (bootstrap_mean_diff_ci, cosine, true_gradient, unit_directions, wilcoxon_signed_rank,
                             win_rate)
-from atlime.models import MLP, RandomForest
+from atlime.models import MLP, GradientBoosting, RandomForest
 from atlime.walk import finite_difference_gradient
 
 
@@ -295,6 +295,18 @@ class TestModels(unittest.TestCase):
         self.assertLess(rf([-0.6, 0.5]), 0.1)
         clone = RandomForest.from_dict(rf.to_dict())
         self.assertEqual(clone([0.21, 0.3]), rf([0.21, 0.3]))
+
+
+    def test_gradient_boosting_learns_interaction_and_roundtrips(self):
+        r = Rng(15)
+        X = [[r.uniform() * 2 - 1, r.uniform() * 2 - 1] for _ in range(600)]
+        y = [1.0 if a * b > 0 else 0.0 for a, b in X]  # XOR-like: needs interactions
+        gb = GradientBoosting(n_trees=60, learning_rate=0.3, max_depth=3, min_samples_leaf=5).fit(X, y)
+        acc = sum((gb(x) > 0.5) == (t > 0.5) for x, t in zip(X, y)) / len(X)
+        self.assertGreater(acc, 0.9)
+        self.assertTrue(all(0.0 < gb(x) < 1.0 for x in X[:20]))
+        clone = GradientBoosting.from_dict(gb.to_dict())
+        self.assertEqual(clone([0.3, -0.2]), gb([0.3, -0.2]))
 
 
 class TestMetrics(unittest.TestCase):

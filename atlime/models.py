@@ -242,16 +242,26 @@ class RegressionTree:
                     best_gain, best = gain, (j, 0.5 * (xa + xb))
         return best
 
-    def predict(self, x: Sequence[float]) -> float:
+    def leaf(self, x: Sequence[float]) -> int:
         node = 0
         feature, threshold, left, right = self.feature, self.threshold, self.left, self.right
         while feature[node] >= 0:
             node = left[node] if x[feature[node]] <= threshold[node] else right[node]
-        return self.value[node]
+        return node
+
+    def predict(self, x: Sequence[float]) -> float:
+        return self.value[self.leaf(x)]
 
     def to_dict(self) -> dict:
         return {"feature": self.feature, "threshold": self.threshold, "left": self.left, "right": self.right,
                 "value": self.value}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RegressionTree":
+        t = cls()
+        t.feature, t.threshold, t.left, t.right, t.value = (data["feature"], data["threshold"], data["left"],
+                                                            data["right"], data["value"])
+        return t
 
 
 class RandomForest:
@@ -286,9 +296,65 @@ class RandomForest:
     @classmethod
     def from_dict(cls, data: dict) -> "RandomForest":
         rf = cls(n_trees=len(data["trees"]))
-        for td in data["trees"]:
-            t = RegressionTree()
-            t.feature, t.threshold, t.left, t.right, t.value = (td["feature"], td["threshold"], td["left"],
-                                                                td["right"], td["value"])
-            rf.trees.append(t)
+        rf.trees = [RegressionTree.from_dict(td) for td in data["trees"]]
         return rf
+
+
+class GradientBoosting:
+    """Binary gradient-boosted trees on the log-loss (Friedman 2001, "TreeBoost").
+
+    Each round fits a CART regression tree to the residuals y - p and then sets
+    every leaf to its Newton step sum(r) / sum(p(1-p)); predictions are
+    sigmoid(F0 + learning_rate * sum of tree outputs). Piecewise constant,
+    like the random forest, but with a much finer partition.
+    """
+
+    def __init__(self, n_trees: int = 100, learning_rate: float = 0.1, max_depth: int = 3, min_samples_leaf: int = 10,
+                 seed: int = 0) -> None:
+        self.n_trees = n_trees
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
+        self.seed = seed
+        self.f0 = 0.0
+        self.trees: list[RegressionTree] = []
+
+    def fit(self, X: Sequence[Sequence[float]], y: Sequence[float]) -> "GradientBoosting":
+        rng = Rng(self.seed)
+        n = len(X)
+        p0 = min(max(math.fsum(y) / n, 1e-6), 1 - 1e-6)
+        self.f0 = math.log(p0 / (1 - p0))
+        F = [self.f0] * n
+        idx = list(range(n))
+        self.trees = []
+        for _ in range(self.n_trees):
+            p = [sigmoid(v) for v in F]
+            r = [t - q for t, q in zip(y, p)]
+            tree = RegressionTree(self.max_depth, self.min_samples_leaf).fit(X, r, idx, rng)
+            num: dict[int, float] = {}
+            den: dict[int, float] = {}
+            leaves = [tree.leaf(x) for x in X]
+            for leaf, ri, pi in zip(leaves, r, p):
+                num[leaf] = num.get(leaf, 0.0) + ri
+                den[leaf] = den.get(leaf, 0.0) + pi * (1 - pi)
+            for leaf in num:
+                tree.value[leaf] = num[leaf] / (den[leaf] + 1e-12)
+            F = [v + self.learning_rate * tree.value[leaf] for v, leaf in zip(F, leaves)]
+            self.trees.append(tree)
+        return self
+
+    def predict(self, x: Sequence[float]) -> float:
+        return sigmoid(self.f0 + self.learning_rate * math.fsum(t.predict(x) for t in self.trees))
+
+    __call__ = predict
+
+    def to_dict(self) -> dict:
+        return {"type": "gradient_boosting", "f0": self.f0, "learning_rate": self.learning_rate,
+                "trees": [t.to_dict() for t in self.trees]}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GradientBoosting":
+        gb = cls(n_trees=len(data["trees"]), learning_rate=data["learning_rate"])
+        gb.f0 = data["f0"]
+        gb.trees = [RegressionTree.from_dict(td) for td in data["trees"]]
+        return gb
