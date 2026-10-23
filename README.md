@@ -1,14 +1,18 @@
 # ArcTanh-LIME — LIME rebuilt from scratch, then bent
 
-This repository is a small research project in three parts:
+This repository is a small research project in four parts:
 
 1. **LIME, implemented from scratch** in pure Python (standard library only — no NumPy, no scikit-learn, no `lime`).
 2. **A proposed improvement, ArcTanh-LIME**: instead of fitting a straight line around the explained instance, walk up
    and down the black box's response surface in steps of width ε until the nearest local maximum and minimum, use
    those two values as the asymptotes of tanh⁻¹, and fit the explanation as a tanh⁻¹ regressor. Repeating the procedure
    at points ±δ away and blending the results extends locality toward something *partially global*.
-3. **An honest evaluation** (11 benchmark settings, paired statistics, ablations, stability) and a **Next.js website**
-   (`web/`) with interactive demos that run a TypeScript port of the exact same algorithm.
+3. **An honest evaluation**: 11 synthetic benchmark settings with paired statistics, ablations and seed stability, plus
+   16 real-data settings (four public diabetes-risk datasets × four black boxes, [§5.7](#57-real-data-diabetes-risk-prediction)).
+4. **A Next.js website** (`web/`) with interactive demos that run a TypeScript port of the exact same algorithm, and a
+   **3-D lab** drawn by a small C++17 / OpenGL ES 3 engine compiled to WebAssembly. It shows any dataset (including an
+   uploaded CSV) in 2-D, 3-D or as an n-D grand tour, with the model's decision boundary, the explained point, and
+   LIME's and ArcTanh-LIME's surrogates ([§10.1](#101-the-3-d-lab-and-its-c-engine)).
 
 Everything below describes what was actually built and measured. Where the idea had to be interpreted, the choice is
 stated; where something was changed during development, that is recorded in [§2.4](#24-what-changed-during-development);
@@ -40,6 +44,13 @@ where the method does not work, that is in [§7](#7-limitations-and-failure-mode
   beyond 2σ is worse than LIME, and attributions become unstable across random seeds (cosine 0.59 vs 0.99).
 - **Attributions are not better gradient estimates.** The cosine similarity between the attribution and the true
   gradient at x₀ is essentially unchanged (e.g. 0.914 vs 0.914; 0.833 vs 0.826).
+- **On real diabetes-risk data the local result holds, and so does the tree failure.** Over 16 settings (Pima,
+  early-stage Sylhet, CDC BRFSS 2015 and Efron progression × logistic regression, MLP, random forest, gradient
+  boosting) ArcTanh-LIME beats equal-budget LIME at 0.5σ in **16 of 16** and at 1σ in **15 of 16**. On logistic
+  regression this is close to automatic, because a logistic model is itself a tanh of a linear function (0.021–0.063×
+  LIME's error at 0.5σ). On the MLPs it is 0.23–0.75× at 0.5σ and 0.33–0.85× at 2σ. On both tree ensembles the walk
+  stalls after 0–3 steps, and the surrogate is worse than LIME on the whole test set in 7 of 8 settings (up to 4.05×).
+  Fixing the asymptotes to [0, 1] without a walk is never significantly worse than LIME in any of the 16 settings.
 
 ---
 
@@ -207,8 +218,10 @@ before the main benchmark, and never tuned per setting.
 
 **No external libraries on the research side.** The Python package and experiments import only the standard library
 (`math`, `json`, `dataclasses`, `typing`, `multiprocessing`, `pathlib`, `time`, `os`, `sys`, `unittest`). All linear
-algebra, random number generation, models, optimisation and statistics are hand-written. The website necessarily uses
-Next.js and React; its algorithm port (`web/lib/core/`) has no dependencies.
+algebra, random number generation, models, optimisation and statistics are hand-written. The real datasets are
+fetched with `urllib` by `experiments/diabetes.py` and parsed by hand. The website necessarily uses Next.js and React;
+its algorithm port (`web/lib/core/`) has no dependencies. The 3-D engine (`viz/`) uses only the C++ standard library,
+OpenGL ES 3 and Emscripten's browser bindings.
 
 | Module | What it contains |
 |---|---|
@@ -219,10 +232,10 @@ Next.js and React; its algorithm port (`web/lib/core/`) has no dependencies.
 | `atlime/arctanh.py` | **ArcTanh-LIME**: asymptotes, tanh⁻¹ link regression, Levenberg–Marquardt refinement, fallbacks |
 | `atlime/ensemble.py` | **±δ anchor ensemble** (axes or random layout), works with any base explainer |
 | `atlime/surrogates.py` | linear, tanh and blended surrogates with analytic gradients |
-| `atlime/models.py` | black boxes: MLP (tanh layers, Adam, cross-entropy or MSE), CART regression trees and random forest |
+| `atlime/models.py` | black boxes: MLP (tanh layers, Adam, cross-entropy or MSE), CART regression trees, random forest, gradient boosting (log-loss, Newton leaf values) |
 | `atlime/datasets.py` | synthetic data: five 1-D curves, two moons, an 8-D classification problem, Friedman #1 |
 | `atlime/metrics.py` | fidelity sets, MSE, gradients, cosine, Wilcoxon signed-rank test, bootstrap CI, win rate |
-| `tests/test_core.py` | 29 unit tests (all pass: `python3 -m unittest discover -s tests -t .`) |
+| `tests/test_core.py` | 30 unit tests (all pass: `python3 -m unittest discover -s tests -t .`) |
 
 **Fidelity to the reference LIME.** The implementation follows `lime.lime_tabular.LimeTabularExplainer` in continuous
 mode (`discretize_continuous=False`, `sample_around_instance=True`). It uses the same kernel, kernel width, ridge
@@ -243,7 +256,8 @@ deliberate 10⁻⁶ corruption of one fixture value is caught.
 
 ## 4. Experimental setup
 
-**Settings** (`experiments/common.py`). All data are synthetic and generated in code.
+**Settings** (`experiments/common.py`). All data in the main benchmark are synthetic and generated in code; §5.7 adds
+four real datasets under the same protocol.
 
 | Setting | d | Black box | Output | Held-out quality | Explained instances |
 |---|---|---|---|---|---|
@@ -454,6 +468,164 @@ itself is deterministic given f and x₀, so only the perturbation sample varies
 On Friedman #1 the function keeps increasing inside [0, 1]¹⁰ along the gradient path, so most walks hit the 40-step
 budget or the box. On the random forest they stall almost immediately.
 
+### 5.7 Real data: diabetes-risk prediction
+
+`python3 -m experiments.run_diabetes` repeats the benchmark on four public datasets with binary diabetes-risk targets,
+each explained through four black boxes trained from scratch: logistic regression (a d-1 sigmoid network), an MLP
+(d-32-1), a random forest (40 trees, depth 8) and gradient boosting (100 depth-3 trees, learning rate 0.1). That gives
+16 settings with 40 explained test instances each. N = 1000, and the methods, fidelity measures, baselines and
+significance rule are the same as in §4. The test-set measure uses up to 400 test rows that exclude the explained
+instances (all remaining rows on the three small datasets).
+
+| Dataset | Source and preprocessing |
+|---|---|
+| Pima Indians | OpenML 37 (NIDDK). Zeros in glucose, blood pressure, skin fold, insulin and BMI are impossible and stand for "missing"; they are replaced by the training median |
+| Early-stage (Sylhet) | UCI 529, CC BY 4.0. Age plus 15 yes/no symptoms (yes/male = 1) |
+| CDC BRFSS 2015 | UCI 891 (CDC Diabetes Health Indicators), CC BY 4.0. 21 survey indicators; target "prediabetes or diabetes". A seeded random subsample of 6,000 of the 253,680 rows, because the pure-Python models cannot train on all of them in reasonable time |
+| Efron progression | Efron et al. (2004), the data behind scikit-learn's `load_diabetes`. The one-year progression score is split at its median as "high progression" |
+
+Splits are seeded 75/25 shuffles (5,000/1,000 for BRFSS). `python3 -m experiments.diabetes download` fetches the raw
+files into the git-ignored `data/raw/` and compares their SHA-256 with `results/diabetes/data_manifest.json`. The raw
+files are not committed. The 3-D lab's presets (`web/public/lab/presets.json`) do carry up to 500 preprocessed rows of
+each dataset, with its attribution; Early-stage and BRFSS are CC BY 4.0. Features enter as continuous inputs, so, as in LIME's continuous mode, perturbations of
+yes/no features take values between 0 and 1. The MLPs standardise their inputs internally, and the explainers measure
+distance in training standard deviations.
+
+| Dataset | d | train / test | positive rate | accuracy LR / MLP / RF / GBM | AUC LR / MLP / RF / GBM |
+|---|---|---|---|---|---|
+| Pima Indians | 8 | 576 / 192 | 0.35 | 0.776 / 0.729 / 0.771 / 0.771 | 0.860 / 0.821 / 0.859 / 0.879 |
+| Early-stage (Sylhet) | 16 | 390 / 130 | 0.62 | 0.900 / 0.969 / 0.892 / 0.954 | 0.963 / 0.997 / 0.984 / 0.993 |
+| CDC BRFSS 2015 | 21 | 5,000 / 1,000 | 0.14 | 0.867 / 0.831 / 0.874 / 0.868 | 0.806 / 0.748 / 0.813 / 0.813 |
+| Efron progression | 10 | 332 / 110 | 0.50 | 0.727 / 0.691 / 0.645 / 0.636 | 0.769 / 0.744 / 0.724 / 0.712 |
+
+**ArcTanh-LIME vs LIME with the same query budget:**
+
+| Setting | 0.5σ | 1σ | 2σ | 4σ | LIME nbhd | test set |
+|---|---|---|---|---|---|---|
+| Pima Indians · LR | **0.024×** ▼ | **0.031×** ▼ | **0.053×** ▼ | **0.035×** ▼ | **0.055×** ▼ | **0.031×** ▼ |
+| Pima Indians · MLP | **0.75×** ▼ | **0.75×** ▼ | **0.85×** ▼ | 1.08× ▲ | **0.95×** ▼ | 0.97× |
+| Pima Indians · RF | **0.48×** ▼ | **0.64×** ▼ | 1.80× ▲ | 2.59× ▲ | 2.06× ▲ | 2.39× ▲ |
+| Pima Indians · GBM | **0.58×** ▼ | 0.91× | 2.05× ▲ | 2.47× ▲ | 2.22× ▲ | 2.45× ▲ |
+| Early-stage (Sylhet) · LR | **0.047×** ▼ | **0.048×** ▼ | **0.055×** ▼ | **0.055×** ▼ | **0.061×** ▼ | **0.035×** ▼ |
+| Early-stage (Sylhet) · MLP | **0.23×** ▼ | **0.29×** ▼ | **0.33×** ▼ | **0.32×** ▼ | **0.42×** ▼ | **0.48×** ▼ |
+| Early-stage (Sylhet) · RF | **0.27×** ▼ | **0.28×** ▼ | **0.39×** ▼ | 2.18× ▲ | 2.33× ▲ | 2.04× ▲ |
+| Early-stage (Sylhet) · GBM | **0.49×** ▼ | **0.53×** ▼ | **0.66×** ▼ | 1.37× | 1.47× | 1.26× |
+| CDC BRFSS 2015 · LR | **0.063×** ▼ | **0.067×** ▼ | **0.10×** ▼ | **0.22×** ▼ | **0.23×** ▼ | **0.11×** ▼ |
+| CDC BRFSS 2015 · MLP | **0.70×** ▼ | **0.71×** ▼ | **0.74×** ▼ | **0.93×** ▼ | 1.00× | **0.84×** ▼ |
+| CDC BRFSS 2015 · RF | **0.24×** ▼ | **0.36×** ▼ | **0.77×** ▼ | 2.02× ▲ | 2.26× ▲ | 4.05× ▲ |
+| CDC BRFSS 2015 · GBM | **0.25×** ▼ | **0.44×** ▼ | 0.88× | 2.21× ▲ | 2.38× ▲ | 3.02× ▲ |
+| Efron progression · LR | **0.021×** ▼ | **0.028×** ▼ | **0.046×** ▼ | **0.034×** ▼ | **0.043×** ▼ | **0.02×** ▼ |
+| Efron progression · MLP | **0.52×** ▼ | **0.52×** ▼ | **0.62×** ▼ | **0.87×** ▼ | **0.79×** ▼ | 0.96× |
+| Efron progression · RF | **0.60×** ▼ | **0.66×** ▼ | 1.52× ▲ | 2.75× ▲ | 2.19× ▲ | 3.34× ▲ |
+| Efron progression · GBM | **0.51×** ▼ | **0.71×** ▼ | 1.61× ▲ | 2.36× ▲ | 2.00× ▲ | 2.55× ▲ |
+
+- **Locally the result carries over.** ArcTanh-LIME is significantly more faithful than equal-budget LIME at 0.5σ in
+  16 of 16 settings and at 1σ in 15 of 16 (all but Pima · GBM). LIME fitted on exactly the same points does no
+  better (`results/summary.md`), so here too it is the surrogate's shape that matters.
+- **Logistic regression is a sanity check, not a finding.** Because tanh(z) = 2σ(2z) − 1, a logistic model lies
+  inside ArcTanh-LIME's surrogate family, and the remaining error is 2–6% of LIME's at 0.5σ.
+- **The MLPs are the informative case:** 0.23–0.75× LIME's error at 0.5σ and 0.33–0.85× at 2σ. The only significant
+  loss for a smooth model at any distance is Pima · MLP at 4σ (1.08×).
+- **Trees fail exactly as the synthetic forest did.** On the random forests and gradient boosting the walk stalls
+  after a median of 0–3 steps. On early-stage, half the walks stop at once on a flat region and fall back to the
+  sample-range asymptotes. Between 38% and 84% of the regression targets then lie outside the asymptotes. The local
+  gain survives (0.24–0.60× at 0.5σ), but from 2–4σ on the surrogate is worse than LIME: at 4σ in 7 of 8 tree
+  settings, and on the whole test set in 7 of 8 (up to 4.05×). Gradient boosting behaves like the random forest.
+
+**Asymptotes fixed to [0, 1], no walk, vs LIME:**
+
+| Setting | 0.5σ | 1σ | 2σ | 4σ | LIME nbhd | test set |
+|---|---|---|---|---|---|---|
+| Pima Indians · LR | **0.027×** ▼ | **0.032×** ▼ | **0.047×** ▼ | **0.05×** ▼ | **0.05×** ▼ | **0.073×** ▼ |
+| Pima Indians · MLP | **0.81×** ▼ | **0.82×** ▼ | **0.88×** ▼ | 1.00× | **0.93×** ▼ | **0.93×** ▼ |
+| Pima Indians · RF | **0.85×** ▼ | **0.86×** ▼ | **0.91×** ▼ | **0.92×** ▼ | **0.91×** ▼ | **0.85×** ▼ |
+| Pima Indians · GBM | **0.87×** ▼ | **0.88×** ▼ | **0.91×** ▼ | **0.89×** ▼ | **0.90×** ▼ | **0.84×** ▼ |
+| Early-stage (Sylhet) · LR | **0.03×** ▼ | **0.033×** ▼ | **0.042×** ▼ | **0.047×** ▼ | **0.07×** ▼ | **0.32×** ▼ |
+| Early-stage (Sylhet) · MLP | **0.29×** ▼ | **0.35×** ▼ | **0.38×** ▼ | **0.34×** ▼ | **0.42×** ▼ | **0.63×** ▼ |
+| Early-stage (Sylhet) · RF | **0.89×** ▼ | **0.91×** ▼ | 0.96× | 0.95× | 0.96× | **0.66×** ▼ |
+| Early-stage (Sylhet) · GBM | **0.81×** ▼ | **0.86×** ▼ | **0.93×** ▼ | **0.92×** ▼ | **0.95×** ▼ | **0.70×** ▼ |
+| CDC BRFSS 2015 · LR | **0.042×** ▼ | **0.045×** ▼ | **0.057×** ▼ | **0.084×** ▼ | **0.087×** ▼ | **0.18×** ▼ |
+| CDC BRFSS 2015 · MLP | **0.73×** ▼ | **0.73×** ▼ | **0.74×** ▼ | **0.84×** ▼ | **0.95×** ▼ | **0.75×** ▼ |
+| CDC BRFSS 2015 · RF | **0.88×** ▼ | **0.91×** ▼ | **0.94×** ▼ | 0.96× | 0.96× | **0.85×** ▼ |
+| CDC BRFSS 2015 · GBM | 0.95× | 0.97× | 0.97× | 0.96× | 0.95× | **0.81×** ▼ |
+| Efron progression · LR | **0.018×** ▼ | **0.025×** ▼ | **0.043×** ▼ | **0.037×** ▼ | **0.044×** ▼ | **0.051×** ▼ |
+| Efron progression · MLP | **0.57×** ▼ | **0.57×** ▼ | **0.65×** ▼ | **0.83×** ▼ | **0.77×** ▼ | 0.96× |
+| Efron progression · RF | **0.83×** ▼ | **0.83×** ▼ | **0.86×** ▼ | **0.93×** ▼ | **0.92×** ▼ | **0.79×** ▼ |
+| Efron progression · GBM | **0.77×** ▼ | **0.77×** ▼ | **0.83×** ▼ | **0.89×** ▼ | **0.87×** ▼ | **0.81×** ▼ |
+
+This variant costs no extra queries and is never significantly worse than LIME, in any of the 16 settings, at any of
+the nine distances or aggregates (the table shows six). On the smooth models it keeps most of the gain. On trees it
+gains little (0.77–0.95× at 0.5σ), but it does not fail far out. For tree ensembles on probability outputs it is the
+safer default.
+
+**±δ ensemble (ArcTanh-LIME-δ) vs LIME:**
+
+| Setting | 0.5σ | 1σ | 2σ | 4σ | LIME nbhd | test set |
+|---|---|---|---|---|---|---|
+| Pima Indians · LR | **0.019×** ▼ | **0.023×** ▼ | **0.031×** ▼ | **0.019×** ▼ | **0.037×** ▼ | **0.015×** ▼ |
+| Pima Indians · MLP | **0.70×** ▼ | **0.71×** ▼ | **0.69×** ▼ | **0.74×** ▼ | **0.70×** ▼ | **0.77×** ▼ |
+| Pima Indians · RF | **0.46×** ▼ | **0.54×** ▼ | 1.17× | 1.83× ▲ | 1.38× ▲ | 1.94× ▲ |
+| Pima Indians · GBM | **0.52×** ▼ | **0.71×** ▼ | 1.34× ▲ | 1.84× ▲ | 1.51× ▲ | 1.98× ▲ |
+| Early-stage (Sylhet) · LR | **0.048×** ▼ | **0.049×** ▼ | **0.055×** ▼ | **0.046×** ▼ | **0.055×** ▼ | **0.025×** ▼ |
+| Early-stage (Sylhet) · MLP | **0.23×** ▼ | **0.29×** ▼ | **0.34×** ▼ | **0.28×** ▼ | **0.34×** ▼ | **0.41×** ▼ |
+| Early-stage (Sylhet) · RF | **0.17×** ▼ | **0.17×** ▼ | **0.21×** ▼ | 1.23× | 1.37× ▲ | 2.01× ▲ |
+| Early-stage (Sylhet) · GBM | **0.25×** ▼ | **0.26×** ▼ | **0.33×** ▼ | 1.10× | 1.19× ▲ | 1.38× ▲ |
+| CDC BRFSS 2015 · LR | **0.063×** ▼ | **0.064×** ▼ | **0.087×** ▼ | **0.17×** ▼ | **0.17×** ▼ | **0.089×** ▼ |
+| CDC BRFSS 2015 · MLP | **0.70×** ▼ | **0.70×** ▼ | **0.71×** ▼ | **0.78×** ▼ | **0.85×** ▼ | **0.73×** ▼ |
+| CDC BRFSS 2015 · RF | **0.21×** ▼ | **0.30×** ▼ | **0.57×** ▼ | 1.54× ▲ | 1.79× ▲ | 3.86× ▲ |
+| CDC BRFSS 2015 · GBM | **0.25×** ▼ | **0.40×** ▼ | **0.67×** ▼ | 1.74× ▲ | 1.89× ▲ | 2.91× ▲ |
+| Efron progression · LR | **0.021×** ▼ | **0.025×** ▼ | **0.038×** ▼ | **0.03×** ▼ | **0.037×** ▼ | **0.012×** ▼ |
+| Efron progression · MLP | **0.50×** ▼ | **0.50×** ▼ | **0.55×** ▼ | **0.65×** ▼ | **0.60×** ▼ | **0.83×** ▼ |
+| Efron progression · RF | **0.53×** ▼ | **0.57×** ▼ | 0.99× | 1.86× ▲ | 1.50× ▲ | 2.74× ▲ |
+| Efron progression · GBM | **0.48×** ▼ | **0.60×** ▼ | 1.07× | 1.64× ▲ | 1.40× ▲ | 2.04× ▲ |
+
+The anchors extend the smooth models' gains outward (Pima · MLP is now 0.74× at 4σ instead of 1.08×), but they do not
+rescue the trees: ArcTanh-LIME-δ is still significantly worse than LIME at 4σ in 6 of 8 tree settings, at 18–117× LIME's
+query cost.
+
+**ε-walk diagnostics:**
+
+| Setting | median steps up / down | stop reasons (both walks) | fallbacks | mean share of targets outside (lo, hi) |
+|---|---|---|---|---|
+| Pima Indians · LR | 40 / 40 | budget 68, extremum 12 | none 40 | 0.009 |
+| Pima Indians · MLP | 21 / 22 | extremum 71, budget 9 | none 40 | 0.000 |
+| Pima Indians · RF | 3 / 2 | extremum 80 | none 40 | 0.567 |
+| Pima Indians · GBM | 1 / 1 | extremum 80 | none 39, sample-range 1 | 0.732 |
+| Early-stage (Sylhet) · LR | 25.5 / 40 | budget 48, extremum 32 | none 40 | 0.002 |
+| Early-stage (Sylhet) · MLP | 17 / 40 | extremum 51, budget 29 | none 40 | 0.001 |
+| Early-stage (Sylhet) · RF | 0 / 0 | flat 42, extremum 38 | sample-range 21, none 19 | 0.425 |
+| Early-stage (Sylhet) · GBM | 0 / 0 | flat 42, extremum 38 | none 19, sample-range 21 | 0.379 |
+| CDC BRFSS 2015 · LR | 40 / 40 | budget 80 | none 40 | 0.006 |
+| CDC BRFSS 2015 · MLP | 40 / 20 | extremum 51, budget 29 | none 40 | 0.025 |
+| CDC BRFSS 2015 · RF | 1 / 1 | extremum 78, bounds 2 | none 40 | 0.838 |
+| CDC BRFSS 2015 · GBM | 0 / 1 | extremum 77, flat 2, bounds 1 | none 39, sample-range 1 | 0.836 |
+| Efron progression · LR | 36 / 31.5 | extremum 64, budget 16 | none 40 | 0.000 |
+| Efron progression · MLP | 20 / 20 | extremum 74, budget 6 | none 40 | 0.000 |
+| Efron progression · RF | 3 / 3 | extremum 80 | none 40 | 0.526 |
+| Efron progression · GBM | 1 / 1 | extremum 80 | none 40 | 0.666 |
+
+**The data box can also hurt.** On Friedman #1, confining the walk to the training range was what made it work
+(§6). On CDC BRFSS · LR the opposite happens: every walk there uses its full 40-step budget, and an unbounded walk
+gives 0.39× the default's error at 1σ and 0.61× on the test set. On the trees no difference is significant (the
+walk barely moves), and on early-stage · LR and · MLP the unbounded walk is 9–16% worse at 0.5–2σ. The box is a
+setting-dependent choice, not a free improvement (full table in `results/summary.md`).
+
+**Attributions vs the true gradient (mean cosine, smooth models):**
+
+| Setting | LIME | ArcTanh-LIME |
+|---|---|---|
+| Pima Indians · LR | 1.000 | 1.000 |
+| Pima Indians · MLP | 0.704 | 0.753 |
+| Early-stage (Sylhet) · LR | 0.986 | 0.997 |
+| Early-stage (Sylhet) · MLP | 0.889 | 0.885 |
+| CDC BRFSS 2015 · LR | 0.998 | 0.999 |
+| CDC BRFSS 2015 · MLP | 0.675 | 0.720 |
+| Efron progression · LR | 0.999 | 1.000 |
+| Efron progression · MLP | 0.798 | 0.810 |
+
+As on the synthetic data, attributions are about as aligned with the true gradient as LIME's (slightly higher on
+three of the four MLPs).
+
 ## 6. Ablations: what drives the gains
 
 `python3 -m experiments.run_ablations` varies one design choice at a time on eight settings (and the ensemble on four),
@@ -517,11 +689,14 @@ What this shows:
 - **Piecewise-constant models.** On the random forest, finite differences see plateaus; the walk stops after about
   2 steps, and the asymptotes enclose only a sliver of the model's local range (52% of targets clipped). At 2σ and 4σ
   the error is 1.79× and 1.64× LIME's (1.98× on LIME's own neighbourhood), and attributions are unstable across seeds.
-  A larger ε, or asymptotes from the sample range or from [0, 1], fix the fidelity loss (§6). The method as specified
-  should not be used on tree ensembles without such a change.
+  A larger ε, or asymptotes from the sample range or from [0, 1], fix the fidelity loss (§6). The diabetes benchmark
+  (§5.7) shows the same failure on real data, for random forests and gradient boosting alike: worse than LIME on the
+  whole test set in 7 of 8 tree settings, up to 4.05×. The method as specified should not be used on tree ensembles
+  without such a change.
 - **Part of the gain comes from the data box, not the walk.** On Friedman #1 the improvement depends on confining the
   walk to the training-data range (§6, point 1). This is legitimate information — LIME also uses training statistics —
-  but it is not the "nearest local extremum" mechanism of the proposal.
+  but it is not the "nearest local extremum" mechanism of the proposal. The box can also hurt: on CDC BRFSS · LR an
+  unbounded walk is 0.39× as wrong at 1σ (§5.7).
 - **Confident extrapolation.** A bounded S-curve commits to its asymptotes. Where the model turns back (the curved
   boundary of the two moons), that confidence becomes error: 1.32× LIME's MSE at 2σ.
 - **Single-direction surrogate.** g is a ridge function: in d dimensions its level sets are hyperplanes, exactly like
@@ -536,10 +711,15 @@ What this shows:
   ArcTanh-LIME-δ explanation used ~56,000 queries.
 - **Global fidelity is not achieved.** Even the ensemble is "partially global" at best. On the multi-dimensional
   settings the single-anchor method does not improve test-set fidelity at all.
-- **Scope of the evidence.** All black boxes and data are synthetic; there is no real-world dataset (none could be
-  bundled without external downloads) and no user study. The results concern surrogate fidelity, not human
+- **Scope of the evidence.** The main benchmark is synthetic. The real-data evidence is four public diabetes datasets
+  with 40 explained instances per setting; BRFSS is a 6,000-row subsample, and the small datasets give test-set
+  measures over only 70–152 rows. There is no user study. The results concern surrogate fidelity, not human
   understanding. Hyperparameters were fixed once, not tuned per setting; other choices (kernel width, N, ε) may change
   the picture. The 1-D evaluation points partly coincide with walk points (§4; ≤ 1.4% effect).
+- **Binary features are treated as continuous.** In the diabetes data most features are yes/no indicators, but both
+  explainers (and the fidelity measures) perturb them continuously, so the black boxes are queried at points no
+  patient could have (e.g. "0.4 smoker"). That is LIME's continuous mode, and it affects LIME and ArcTanh-LIME alike,
+  but fidelity at such points says little about clinically meaningful counterfactuals.
 - **Implementation scope.** Continuous tabular features only; the discretised LIME mode, categorical features and
   text/image explainers are not implemented.
 
@@ -556,7 +736,8 @@ What this shows:
   - anchors placed along the walk path instead of the feature axes, which would scale better with d;
   - choosing between walk asymptotes and [0, 1] automatically;
   - multi-direction (additive) tanh surrogates for curved boundaries;
-  - real datasets and user studies.
+  - perturbations that respect binary and categorical features in real tabular data;
+  - user studies.
 
 ## 9. Reproducing everything
 
@@ -564,16 +745,20 @@ Requirements: Python ≥ 3.12 (uses `math.sumprod`; developed on 3.14) and, for 
 files natively; developed on Node 26).
 
 ```bash
-python3 -m unittest discover -s tests -t .   # 29 unit tests
+python3 -m unittest discover -s tests -t .   # 30 unit tests
 python3 -m experiments.run_benchmarks        # main benchmark, ~3 min on 10 cores (trains/caches the models first)
 python3 -m experiments.run_ablations         # ablations, ~11 min
 python3 -m experiments.run_stability         # seed stability, ~10 s
+python3 -m experiments.diabetes download     # the four diabetes datasets (~14 MB) into data/raw/ (git-ignored)
+python3 -m experiments.diabetes models       # train/cache the 16 black boxes in data/models/, print accuracy and AUC
+python3 -m experiments.run_diabetes          # diabetes benchmark -> results/diabetes/
 python3 -m experiments.readme_tables         # results/summary.md (the tables in this README)
-python3 -m experiments.export_web            # web/data/*.json (results, MLP weights, parity fixtures)
+python3 -m experiments.export_web            # web/data/*.json and web/public/lab/presets.json
 ```
 
-Everything is deterministic: seeds are fixed, and the trained models are cached in `results/models/`. Re-running
-reproduces the numbers above exactly.
+Everything is deterministic: seeds are fixed, and the trained models are cached in `results/models/` (synthetic) and
+`data/models/` (diabetes). Re-running reproduces the numbers above exactly, provided the downloaded files match the
+recorded hashes (the download step warns if they do not).
 
 Using the library directly:
 
@@ -603,7 +788,9 @@ ens.surrogate.predict(x)     # partially-global surrogate
   the link-space view and live error curves;
 - **Two dimensions** — the two-moons MLP (the exact weights trained by the Python code) with the 2-D walk, anchors and
   error maps;
-- **Results, ablations, limits** — charts and tables read from the experiment outputs at build time.
+- **3-D lab** — any dataset in 2-D, 3-D or n-D, with the model's decision boundary, the explained point, LIME and
+  ArcTanh-LIME (§10.1);
+- **Results, diabetes, ablations, limits** — charts and tables read from the experiment outputs at build time.
 
 The charts are hand-written SVG and canvas, with no chart library. The algorithm runs in the browser via
 `web/lib/core/`, the TypeScript port verified by `npm run parity`.
@@ -616,14 +803,68 @@ npm run dev      # http://localhost:3000
 npm run build    # static site in web/out/
 ```
 
+### 10.1 The 3-D lab and its C++ engine
+
+The lab is drawn by `viz/`, about 1,450 lines of C++17 against OpenGL ES 3.0. Emscripten compiles it to WebAssembly
+with WebGL2 (`web/public/viz/viz.{js,wasm}`, 36 KB + 89 KB, committed so the site builds without Emscripten). The
+page drives it through a small C API (`viz_add_surface`, `viz_add_isosurface`, `viz_tween`, `viz_pick`, …) wrapped
+in `web/lib/lab/viz.ts`.
+
+The animation model borrows manim's vocabulary rather than its code. Every object has animatable properties (opacity,
+a reveal parameter, a morph weight toward a second set of vertices, scale, glow), and tweens move them with manim's
+rate functions (`smooth`, `there_and_back`, …). *Create* is a reveal sweep, *FadeIn* is opacity, and *Transform* is a
+vertex morph (LIME's plane bending into ArcTanh-LIME's surface). The camera has its own tweens and an optional ambient
+rotation. Object properties are a pure function of the timeline clock, so Replay and End always reach the same
+state. The geometry is generated in C++:
+
+- surfaces z = f(u, v) on a grid;
+- iso-surfaces by marching tetrahedra (six tetrahedra per cell, so the result has no ambiguous faces);
+- a "4-D" iso-surface whose field is interpolated over time and re-extracted every frame;
+- iso-lines by marching squares;
+- instanced icosphere points with picking;
+- tubes with parallel-transport frames (the ε-walk), arrows, planes, boxes and a floor grid;
+- a grand tour through 3-D projections of all d dimensions: it starts at the first three principal components, then
+  visits random projections. Frames are interpolated linearly and re-orthonormalised by Gram–Schmidt every frame (a
+  simple approximation to a geodesic grand tour).
+
+`viz/build.sh test` compiles the geometry with the native compiler and runs `viz/tests/test_geometry.cpp`. It checks
+the iso-surface of a sphere (vertex radius, normals, area within 2%) and of a plane, the marching-squares circle, the
+tube and surface meshes (including holes and morph targets), the icosphere, the tour's orthonormal frames and the
+easing functions. `viz/build.sh wasm` rebuilds the WebAssembly (needs `brew install emscripten`).
+
+What the four views show (`web/lib/lab/scenes.ts`):
+
+- **Risk surface (3-D):** the black box's P(positive) as a height over a 2-D slice through x₀, with LIME's plane, the
+  ε-walk and asymptotes, and LIME's plane morphing into ArcTanh-LIME's tanh surface. Optionally it adds the ±δ anchors
+  and the blended surrogate.
+- **Feature space (3-D):** data points coloured by label, and the 0.5 decision surface of the model, of LIME and of
+  ArcTanh-LIME (optionally also the 0.25 and 0.75 levels). The *sweep* animates a fourth dimension: the slice moves
+  ±2σ along the next principal component. The three fields are computed at nine positions along that axis,
+  interpolated in time, and their surfaces re-extracted every frame.
+- **Feature space (2-D):** the same as level lines, viewed from the top.
+- **Grand tour (n-D):** a rotating projection through all d dimensions, with feature axes drawn as arrows.
+
+The three slice axes can be the explanation direction (ArcTanh-LIME's β, completed by principal components
+orthogonal to it), the first three principal components, or any three features. All features not on the axes are held
+at x₀'s values, so a 3-D view is a *slice* of the model and a 2-D or 3-D picture of the data is a *projection*. Points
+need not lie on the slice. Presets: the four diabetes datasets with their MLP, gradient-boosting and logistic models,
+plus the two moons and the synthetic 8-D problem. An uploaded CSV is parsed in the browser (median imputation,
+yes/no columns → 0/1, small categoricals one-hot, other text columns dropped; up to 4,000 rows). A d-16-1 MLP is
+trained on it there, and it is explained with the same TypeScript port as the rest of the site (the lab's ±δ
+ensemble uses N = 600 per member to stay interactive). Nothing is uploaded anywhere.
+
 ## 11. Repository layout
 
 ```
 atlime/                 the stdlib-only Python package (LIME, ε-walk, ArcTanh-LIME, ensemble, models, metrics)
 tests/                  unit tests
-experiments/            benchmark, ablation and stability runners; README tables; website export
+experiments/            benchmark, ablation, stability and diabetes runners; README tables; website export
 results/                generated: benchmarks/ablations/stability JSON + Markdown, raw per-instance records, models
-web/                    Next.js site; web/lib/core is the TypeScript port, web/scripts/parity.ts its test
+results/diabetes/       generated: diabetes benchmark JSON + Markdown, raw records, data manifest (SHA-256)
+data/                   git-ignored: downloaded diabetes files (raw/) and the black boxes trained on them (models/)
+viz/                    C++17 / OpenGL ES 3 engine of the 3-D lab (src/), its native tests (tests/), build.sh
+web/                    Next.js site; web/lib/core is the TypeScript port, web/scripts/parity.ts its test,
+                        web/lib/lab + web/components/Lab3D.tsx the 3-D lab, web/public/viz the compiled engine
 ```
 
 ## 12. References
@@ -634,3 +875,17 @@ web/                    Next.js site; web/lib/core is the TypeScript port, web/s
 - F. Wilcoxon. Individual Comparisons by Ranking Methods. *Biometrics Bulletin* 1(6), 1945.
 - D. P. Kingma, J. Ba. Adam: A Method for Stochastic Optimization. ICLR 2015. (Optimiser of the MLP black boxes.)
 - L. Breiman. Random Forests. *Machine Learning* 45, 2001. (The random-forest black box.)
+- J. H. Friedman. Greedy Function Approximation: A Gradient Boosting Machine. *Annals of Statistics* 29(5), 2001.
+  (The gradient-boosting black box.)
+- J. W. Smith, J. E. Everhart, W. C. Dickson, W. C. Knowler, R. S. Johannes. Using the ADAP Learning Algorithm to
+  Forecast the Onset of Diabetes Mellitus. *Proc. Symposium on Computer Applications in Medical Care*, 1988. (Pima
+  Indians Diabetes Database, National Institute of Diabetes and Digestive and Kidney Diseases; OpenML dataset 37.)
+- M. M. F. Islam, R. Ferdousi, S. Rahman, H. Y. Bushra. Likelihood Prediction of Diabetes at Early Stage Using Data
+  Mining Techniques. In *Computer Vision and Machine Intelligence in Medical Image Analysis*, Springer, 2020. (UCI
+  dataset 529, CC BY 4.0.)
+- Centers for Disease Control and Prevention. Behavioral Risk Factor Surveillance System 2015; *CDC Diabetes Health
+  Indicators*, UCI Machine Learning Repository dataset 891, CC BY 4.0.
+- B. Efron, T. Hastie, I. Johnstone, R. Tibshirani. Least Angle Regression. *Annals of Statistics* 32(2), 2004.
+  (The diabetes progression data.)
+- G. Sanderson and the Manim Community. *manim*, a library for mathematical animation. (The animation vocabulary of
+  the 3-D lab; no manim code is used.)
