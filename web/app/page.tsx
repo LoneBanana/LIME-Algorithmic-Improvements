@@ -1,6 +1,7 @@
 import AblationExplorer from "@/components/AblationExplorer";
 import ClientOnly from "@/components/ClientOnly";
 import FidelityMultiples from "@/components/FidelityMultiples";
+import Lab3D from "@/components/Lab3D";
 import MethodSteps from "@/components/MethodSteps";
 import MoonsExplorer from "@/components/MoonsExplorer";
 import OneDExplorer from "@/components/OneDExplorer";
@@ -10,6 +11,7 @@ import {
   ablationComparison, ablationTables, ablationValue, ablationWins, benchComparison, benchMethod, costRows, fidelityPanels, gradientRows, headline,
   META, QUALITY, RATIO_METRICS, ratioComparisons, SETTING_NAMES, STABILITY_META, stabilityRows, walkDiagnostics,
 } from "@/lib/results";
+import { DIA_META, DIA_MODEL_NAMES, DIA_MODELS, diabetesComparisons, diabetesDatasets, diabetesHeadline } from "@/lib/diabetes";
 import { fmtRatio } from "@/lib/plot";
 
 const fx = (v: number) => fmtRatio(v);
@@ -33,6 +35,8 @@ export default function Page() {
   const linkWins = ablationWins("fit = link space only (pure tanh⁻¹ regression)", "LIME", "r0.5");
   const globalWins = ablationWins("asymptotes = global output range (no walk)", "LIME", "r0.5");
   const pinWins = ablationWins("pin origin: g(x0) = f(x0)", "LIME, intercept pinned to f(x0)", "r1");
+  const dh = diabetesHeadline();
+  const span = ([lo, hi]: [number, number]) => `${fx(lo)}–${fx(hi)}`;
 
   return (
     <>
@@ -44,7 +48,9 @@ export default function Page() {
             <a href="#method">Method</a>
             <a href="#playground">Playground</a>
             <a href="#two-d">2-D</a>
+            <a href="#lab">3-D lab</a>
             <a href="#results">Results</a>
+            <a href="#diabetes">Diabetes</a>
             <a href="#ablations">Ablations</a>
             <a href="#limits">Limits</a>
             <a href="#reproduce">Reproduce</a>
@@ -67,7 +73,7 @@ export default function Page() {
           </p>
           <div className="byline">
             <span>Python standard library only — no NumPy, no scikit-learn, no lime</span>
-            <span>11 benchmark settings · paired statistics · full ablations</span>
+            <span>11 synthetic + {dh.total} diabetes-risk settings · paired statistics · full ablations</span>
             <span>Interactive figures run a TypeScript port that matches the Python to 4×10⁻¹⁶</span>
           </div>
           <div className="stats">
@@ -200,6 +206,35 @@ export default function Page() {
           </ClientOnly>
         </section>
 
+        <section id="lab">
+          <div className="prose">
+            <h2>3-D lab: any dataset, in 2, 3 or n dimensions</h2>
+            <p>
+              A manim-style renderer written in C++ against OpenGL ES 3 and compiled to WebAssembly (WebGL2) draws
+              the black box, the explained instance, LIME and ArcTanh-LIME for real diabetes-risk data — or for any
+              CSV you drop in, which is parsed, modelled and explained without leaving your browser. Four views:
+            </p>
+            <ul>
+              <li><b>Risk surface</b> — two axes through x₀ and the model&apos;s probability as height; watch the LIME
+                plane transform into the ArcTanh-LIME S-surface between the walk&apos;s asymptotes.</li>
+              <li><b>Feature space (3-D)</b> — the model&apos;s P = 0.5 boundary as an iso-surface against the two
+                surrogates&apos; decision planes; optionally swept along a fourth direction, so a 4-D slice plays out
+                over time.</li>
+              <li><b>Feature space (2-D)</b> — the same as contours, with optional 0.25/0.75 levels.</li>
+              <li><b>Grand tour</b> — every feature at once: the projection rotates smoothly through n-dimensional
+                space, carrying the ε-walk and both attribution vectors with it.</li>
+            </ul>
+            <p className="small muted">
+              Axes default to the explanation direction (the surrogate&apos;s β) plus principal components orthogonal to
+              it; slices hold every other feature at x₀&apos;s value. Data points are projections, so in 3-D they do not
+              lie exactly on the slice.
+            </p>
+          </div>
+          <ClientOnly minHeight={760}>
+            <Lab3D />
+          </ClientOnly>
+        </section>
+
         <section id="results">
           <div className="prose">
             <h2>Results</h2>
@@ -321,6 +356,97 @@ export default function Page() {
           </div>
         </section>
 
+        <section id="diabetes">
+          <div className="prose">
+            <h2>Real data: diabetes risk</h2>
+            <p>
+              The same benchmark on four public diabetes datasets, each explained through four black boxes — logistic
+              regression, an MLP, a random forest and gradient-boosted trees, all trained from scratch in the standard
+              library. That makes {dh.total} settings with {DIA_META.instances} test instances each,
+              N = {DIA_META.numSamples.toLocaleString("en-US")} perturbations, and the same fidelity measures, baselines
+              and significance rule as above. Distances are in training standard deviations; yes/no indicators are
+              perturbed as continuous values, as in LIME&apos;s continuous mode.
+            </p>
+          </div>
+          <figure className="card">
+            <p className="fig-title">Datasets and black boxes</p>
+            <div className="table-scroll">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Dataset</th><th>d</th><th>train / test</th><th>positive</th>
+                    {DIA_MODELS.map((m) => <th key={m}>AUC {DIA_MODEL_NAMES[m]}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {diabetesDatasets().map((r) => (
+                    <tr key={r.key}>
+                      <td>{r.title}</td>
+                      <td>{r.d}</td>
+                      <td>{r.nTrain.toLocaleString("en-US")} / {r.nTest.toLocaleString("en-US")}</td>
+                      <td>{pct(r.positiveRate)}</td>
+                      {DIA_MODELS.map((m) => <td key={m}>{r.auc[m].toFixed(2)}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <figcaption>
+              Pima Indians (NIDDK, via OpenML 37): impossible zeros in glucose, blood pressure, skin fold, insulin and
+              BMI replaced by training medians. Early-stage risk (Sylhet; UCI 529, CC BY 4.0): yes/no symptoms as 0/1.
+              CDC BRFSS 2015 health indicators (UCI 891, CC BY 4.0): a seeded 6,000-row subsample of 253,680, since the
+              pure-Python models cannot train on all of it. Efron et al. (2004) progression data: the one-year
+              progression score split at its median as &ldquo;high progression&rdquo;. The raw files are downloaded by a
+              script and not committed; the 3-D lab above loads up to 500 preprocessed rows of each, with attribution.
+            </figcaption>
+          </figure>
+          <ClientOnly minHeight={640}>
+            <RatioPlot comparisons={diabetesComparisons()} metrics={RATIO_METRICS} />
+          </ClientOnly>
+          <div className="prose">
+            <h3>What the diabetes numbers say</h3>
+            <ul>
+              <li>
+                <b>Locally it holds up on real data.</b> Against equal-budget LIME, ArcTanh-LIME is significantly more
+                faithful at 0.5σ in {dh.betterAt05.length} of {dh.total} settings and at 1σ in {dh.betterAt1.length} of{" "}
+                {dh.total}.
+              </li>
+              <li>
+                <b>Logistic regression is a sanity check, not a finding.</b> Because tanh(z) = 2σ(2z) − 1, a logistic
+                model already lies in ArcTanh-LIME&apos;s surrogate family, so the error nearly vanishes
+                ({span(dh.lr05)} LIME&apos;s at 0.5σ). LIME, being linear in probability space, cannot do this.
+              </li>
+              <li>
+                <b>The MLPs are the informative case.</b> {span(dh.mlp05)} LIME&apos;s error at 0.5σ and {span(dh.mlp2)}{" "}
+                at 2σ. Significant losses to LIME among the smooth models, over all nine distances and aggregates:{" "}
+                {dh.smoothLosses.length ? dh.smoothLosses.join("; ") : "none"}.
+              </li>
+              <li>
+                <b>Trees break it farther out — the same failure as the synthetic forest.</b> On the forests and
+                boosted trees the walk hits a plateau after a median of {dh.treeSteps[0]}–{dh.treeSteps[1]} steps, and{" "}
+                {pct(dh.treeClipped[0])}–{pct(dh.treeClipped[1])} of the regression targets fall outside the
+                asymptotes. The local gain survives ({span(dh.tree05)} at 0.5σ), but the surrogate is significantly
+                worse than LIME at 3σ in {dh.treesWorseAt3.length} of {dh.trees} tree settings and on the whole test
+                set in {dh.treesWorseGlobal.length} of {dh.trees} (ratios {span(dh.treeGlobal)} across all {dh.trees}).
+              </li>
+              <li>
+                <b>The cheap variant is the safe one.</b> Fixing the asymptotes at [0, 1] — no walk, no extra queries —{" "}
+                {dh.noWalkLosses.length
+                  ? <>is significantly worse than LIME only for {dh.noWalkLosses.join("; ")}</>
+                  : <>is never significantly worse than LIME, in any setting, at any distance or on either aggregate</>}, and better at 0.5σ
+                in {dh.noWalkBetterAt05.length} of {dh.total}. On trees its gain is small ({span(dh.noWalkTree05)}),
+                but it does not fail far out.
+              </li>
+              <li>
+                <b>±δ anchors do not rescue the trees.</b> ArcTanh-LIME-δ is still significantly worse than LIME at 4σ
+                in {dh.ensembleTreesWorseAt4.length} of {dh.trees} tree settings, at {Math.round(dh.ensembleCost[0])}–
+                {Math.round(dh.ensembleCost[1])}× LIME&apos;s query cost (the single-anchor walk costs +
+                {Math.round(dh.overhead[0] * 100)}% to +{Math.round(dh.overhead[1] * 100)}%).
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <section id="ablations">
           <div className="prose">
             <h2>Ablations</h2>
@@ -419,10 +545,12 @@ export default function Page() {
               </p>
             </div>
             <div className="card failure">
-              <h4>Synthetic evidence only</h4>
+              <h4>Fidelity, not understanding</h4>
               <p>
-                All black boxes and datasets are generated in code; nothing here is a real-world dataset or a user
-                study. The results describe surrogate fidelity, not whether people understand the explanations better.
+                The evidence is synthetic functions plus four public diabetes datasets ({DIA_META.instances} test
+                instances per setting, BRFSS subsampled). Yes/no features are perturbed as continuous values, so both
+                methods are queried at points no patient could have. Nothing here is a user study: the results describe
+                surrogate fidelity, not whether people understand the explanations better.
               </p>
             </div>
           </div>
@@ -446,7 +574,8 @@ export default function Page() {
             </li>
             <li>
               <b>Match the explainer to the model.</b> On smooth models the method is a solid local improvement; on
-              tree ensembles the walk needs smoothing (or the asymptote ablations) before it can be trusted.
+              tree ensembles the walk needs smoothing (or the asymptote ablations) before it can be trusted. The
+              diabetes benchmark shows the same split on real data, with random forests and gradient boosting alike.
             </li>
           </ul>
         </section>
@@ -455,11 +584,15 @@ export default function Page() {
           <h2>Reproduce</h2>
           <p>Everything on this page regenerates from the repository in a few minutes on a laptop:</p>
           <pre>
-            <code>{`python3 -m unittest discover -s tests -t .   # 29 unit tests
+            <code>{`python3 -m unittest discover -s tests -t .   # 30 unit tests
 python3 -m experiments.run_benchmarks          # main benchmark  (~3 min)
 python3 -m experiments.run_ablations           # ablations       (~11 min)
 python3 -m experiments.run_stability           # seed stability  (~10 s)
+python3 -m experiments.diabetes download       # 4 public datasets (~14 MB; hashes checked against results/diabetes/data_manifest.json)
+python3 -m experiments.diabetes models         # train the 16 black boxes
+python3 -m experiments.run_diabetes            # diabetes benchmark
 python3 -m experiments.export_web              # data for this site
+viz/build.sh test && viz/build.sh wasm         # 3-D engine (needs Emscripten)
 cd web && npm install && npm run parity && npm run dev`}</code>
           </pre>
         </section>
