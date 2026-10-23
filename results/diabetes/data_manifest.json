@@ -1,0 +1,26 @@
+{
+  "pima": {
+    "url": "https://api.openml.org/data/v1/download/37",
+    "file": "data/raw/pima/dataset_37_diabetes.arff",
+    "bytes": 37419,
+    "sha256": "4eddd5b2b64679e8888348e306520a393d6a28e1ddc9643cfb76fc5d912d6d40"
+  },
+  "early": {
+    "url": "https://archive.ics.uci.edu/static/public/529/data.csv",
+    "file": "data/raw/early/early_stage_diabetes.csv",
+    "bytes": 34682,
+    "sha256": "f6bf14c5d2e939feccd78750da2542f131b78d80355ccf35f29554b1f03fcb97"
+  },
+  "brfss": {
+    "url": "https://archive.ics.uci.edu/static/public/891/data.csv",
+    "file": "data/raw/brfss/cdc_diabetes_health_indicators.csv",
+    "bytes": 13494568,
+    "sha256": "9f71fda9d4ae5f4878c99b9233b6a16accfa9a17c194116a6b78100540934964"
+  },
+  "efron": {
+    "url": "https://www4.stat.ncsu.edu/~boos/var.select/diabetes.tab.txt",
+    "file": "data/raw/efron/diabetes.tab.txt",
+    "bytes": 18496,
+    "sha256": "4733febee697862c22139cdac87478a300ce0d101593deb07ed6c0f3328a99cd"
+  }
+}

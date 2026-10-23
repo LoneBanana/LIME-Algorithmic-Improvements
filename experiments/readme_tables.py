@@ -35,12 +35,71 @@ def ratio_cell(c: dict) -> str:
     return txt
 
 
-def comparison_table(bench: dict, a: str, b: str) -> list[str]:
+def comparison_table(bench: dict, a: str, b: str, order: list[str] = ORDER, names: dict = NAMES) -> list[str]:
     lines = ["| Setting | " + " | ".join(m[1] for m in METRICS) + " |", "|---" * (len(METRICS) + 1) + "|"]
-    for k in ORDER:
+    for k in order:
         comp = bench[k]["comparisons"][f"{a} vs {b}"]
-        lines.append(f"| {NAMES[k]} | " + " | ".join(ratio_cell(comp[m]) for m, _ in METRICS) + " |")
+        lines.append(f"| {names[k]} | " + " | ".join(ratio_cell(comp[m]) for m, _ in METRICS) + " |")
     return lines
+
+
+def walk_rows(settings: dict, order: list[str], names: dict) -> list[str]:
+    lines = []
+    for k in order:
+        w = settings[k]["walk"]
+        reasons = ", ".join(f"{r} {n}" for r, n in sorted(w["stop_reasons"].items(), key=lambda t: -t[1]))
+        fb = ", ".join(f"{r} {n}" for r, n in w["fallbacks"].items())
+        lines.append(f"| {names[k]} | {w['up_steps']['median']:g} / {w['down_steps']['median']:g} | {reasons} | {fb} | "
+                     f"{w['clipped_fraction']['mean']:.3f} |")
+    return lines
+
+
+def diabetes_tables(dia: dict) -> list[str]:
+    """Tables for the real-data benchmark (results/diabetes/benchmarks.json)."""
+    s = dia["settings"]
+    short = {"lr": "LR", "mlp": "MLP", "rf": "RF", "gbm": "GBM"}
+    order = list(s)
+    names = {k: f"{dia['datasets'][v['dataset']]['title']} · {short[v['model']]}" for k, v in s.items()}
+    models = list(short)
+    out = ["", "# Diabetes-risk benchmark (`python3 -m experiments.run_diabetes`)", "",
+           "## Datasets and black boxes (held-out test split)", "",
+           "| Dataset | d | train / test | positive rate | accuracy LR / MLP / RF / GBM | AUC LR / MLP / RF / GBM |",
+           "|---|---|---|---|---|---|"]
+    for key, info in dia["datasets"].items():
+        q = [s[f"dia_{key}_{m}"]["quality"] for m in models]
+        out.append(f"| {info['title']} | {len(info['features'])} | {info['n_train']:,} / {info['n_test']:,} | "
+                   f"{info['positive_rate']:.2f} | " + " / ".join(f"{x['test_accuracy']:.3f}" for x in q) + " | "
+                   + " / ".join(f"{x['test_auc']:.3f}" for x in q) + " |")
+    for a, b, title in (
+        ("ArcTanh-LIME", "LIME (matched budget)", "ArcTanh-LIME vs LIME with the same query budget"),
+        ("ArcTanh-LIME", "LIME (same data)", "ArcTanh-LIME vs LIME fitted on exactly the same points"),
+        ("ArcTanh-LIME, [0,1] asymptotes (no walk)", "LIME", "ArcTanh-LIME with asymptotes fixed to [0, 1] (no walk) vs LIME"),
+        ("ArcTanh-LIME, unbounded walk", "ArcTanh-LIME", "Walk not confined to the data box vs default ArcTanh-LIME"),
+        ("ArcTanh-LIME-δ", "LIME", "ArcTanh-LIME-δ vs LIME"),
+        ("ArcTanh-LIME-δ", "LIME-δ", "ArcTanh-LIME-δ vs LIME-δ"),
+        ("LIME-δ", "LIME", "LIME-δ vs LIME"),
+    ):
+        out += ["", f"## Diabetes: {title}", ""]
+        out += comparison_table(s, a, b, order, names)
+    out += ["", "## Diabetes: mean MSE at 1σ and query cost", "",
+            "| Setting | LIME | ArcTanh-LIME | LIME-δ | ArcTanh-LIME-δ | queries LIME / ArcTanh / LIME-δ / ArcTanh-δ (median) |",
+            "|---|---|---|---|---|---|"]
+    for k in order:
+        m = s[k]["methods"]
+        mse = " | ".join(f"{m[x]['r1']['mean']:.4g}" for x in ("LIME", "ArcTanh-LIME", "LIME-δ", "ArcTanh-LIME-δ"))
+        q = " / ".join(f"{m[x]['queries']['median']:,.0f}" for x in ("LIME", "ArcTanh-LIME", "LIME-δ", "ArcTanh-LIME-δ"))
+        out.append(f"| {names[k]} | {mse} | {q} |")
+    out += ["", "## Diabetes: ε-walk diagnostics (ArcTanh-LIME)", "",
+            "| Setting | median steps up / down | stop reasons (both walks) | fallbacks | mean share of targets outside (lo, hi) |",
+            "|---|---|---|---|---|"]
+    out += walk_rows(s, order, names)
+    out += ["", "## Diabetes: attribution vs true gradient (mean cosine; LR and MLP only)", "",
+            "| Setting | LIME | ArcTanh-LIME |", "|---|---|---|"]
+    for k in order:
+        m = s[k]["methods"]
+        if "mean" in m["LIME"].get("grad_cosine", {}):
+            out.append(f"| {names[k]} | {m['LIME']['grad_cosine']['mean']:.3f} | {m['ArcTanh-LIME']['grad_cosine']['mean']:.3f} |")
+    return out
 
 
 def main() -> None:
@@ -77,12 +136,7 @@ def main() -> None:
     out += ["", "## ε-walk diagnostics (ArcTanh-LIME)", "",
             "| Setting | median steps up / down | stop reasons (both walks) | fallbacks | mean share of targets outside (lo, hi) |",
             "|---|---|---|---|---|"]
-    for k in ORDER:
-        w = s[k]["walk"]
-        reasons = ", ".join(f"{r} {n}" for r, n in sorted(w["stop_reasons"].items(), key=lambda t: -t[1]))
-        fb = ", ".join(f"{r} {n}" for r, n in w["fallbacks"].items())
-        out.append(f"| {NAMES[k]} | {w['up_steps']['median']:g} / {w['down_steps']['median']:g} | {reasons} | {fb} | "
-                   f"{w['clipped_fraction']['mean']:.3f} |")
+    out += walk_rows(s, ORDER, NAMES)
 
     out += ["", "## Attribution vs true gradient (mean cosine; smooth black boxes, d ≥ 2)", "",
             "| Setting | LIME | ArcTanh-LIME |", "|---|---|---|"]
@@ -139,6 +193,10 @@ def main() -> None:
     for k, v in quality.items():
         metric = ", ".join(f"{a} = {b:.3f}" for a, b in v.items() if a != "train_seconds")
         out.append(f"| {k} | {metric} |")
+
+    dia = RESULTS / "diabetes" / "benchmarks.json"
+    if dia.exists():
+        out += diabetes_tables(json.loads(dia.read_text()))
     (RESULTS / "summary.md").write_text("\n".join(out) + "\n")
     print("wrote results/summary.md")
 
