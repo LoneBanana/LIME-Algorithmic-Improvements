@@ -1,0 +1,24 @@
+{
+  "moons_mlp": {
+    "test_accuracy": 0.97,
+    "train_seconds": 7.333704233169556
+  },
+  "synth_mlp": {
+    "test_accuracy": 0.775,
+    "train_seconds": 5.485245943069458
+  },
+  "synth_rf": {
+    "test_accuracy": 0.745,
+    "train_seconds": 0.8816709518432617
+  },
+  "friedman_mlp": {
+    "test_r2": 0.9447142311800469,
+    "train_seconds": 9.118485927581787
+  },
+  "synth_oracle": {
+    "test_accuracy": 0.819
+  },
+  "friedman_oracle": {
+    "test_r2": 0.9571687105265964
+  }
+}

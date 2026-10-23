@@ -1,0 +1,171 @@
+{
+ "n_instances": 15,
+ "n_seeds": 5,
+ "settings": {
+  "1d_bumps": {
+   "title": "1-D bumps",
+   "methods": {
+    "LIME": {
+     "pairwise_cosine": {
+      "mean": 0.92,
+      "median": 1.0
+     },
+     "relative_spread": {
+      "mean": 0.0828884600083581,
+      "median": 0.0193698873793727
+     },
+     "prediction_sd": {
+      "mean": 0.008354003201087099,
+      "median": 0.0072220921325658605
+     }
+    },
+    "ArcTanh-LIME": {
+     "pairwise_cosine": {
+      "mean": 1.0,
+      "median": 1.0
+     },
+     "relative_spread": {
+      "mean": 0.04228769286588015,
+      "median": 0.0032584441085349953
+     },
+     "prediction_sd": {
+      "mean": 0.003638512505865727,
+      "median": 0.0008743453487856707
+     }
+    }
+   }
+  },
+  "moons_mlp": {
+   "title": "Two moons - MLP (2-D)",
+   "methods": {
+    "LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9985439259876904,
+      "median": 0.9989352587195857
+     },
+     "relative_spread": {
+      "mean": 0.053774841595055405,
+      "median": 0.04406284105965525
+     },
+     "prediction_sd": {
+      "mean": 0.011921450450640756,
+      "median": 0.011287769066013881
+     }
+    },
+    "ArcTanh-LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9310964803302821,
+      "median": 0.9982592854741499
+     },
+     "relative_spread": {
+      "mean": 0.0615525493402534,
+      "median": 0.06658166273292201
+     },
+     "prediction_sd": {
+      "mean": 0.013221288399534636,
+      "median": 0.011745255031170023
+     }
+    }
+   }
+  },
+  "synth_mlp": {
+   "title": "Synthetic 8-D - MLP",
+   "methods": {
+    "LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9895632159916157,
+      "median": 0.9920712582571973
+     },
+     "relative_spread": {
+      "mean": 0.08668611417639263,
+      "median": 0.08225968011005841
+     },
+     "prediction_sd": {
+      "mean": 0.009242771093329605,
+      "median": 0.009148470518299742
+     }
+    },
+    "ArcTanh-LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9920791092780061,
+      "median": 0.9928518298335869
+     },
+     "relative_spread": {
+      "mean": 0.08087739289179391,
+      "median": 0.08050698048672927
+     },
+     "prediction_sd": {
+      "mean": 0.012010268814525656,
+      "median": 0.013004183645180778
+     }
+    }
+   }
+  },
+  "synth_rf": {
+   "title": "Synthetic 8-D - random forest",
+   "methods": {
+    "LIME": {
+     "pairwise_cosine": {
+      "mean": 0.993177982789471,
+      "median": 0.99434101445085
+     },
+     "relative_spread": {
+      "mean": 0.07510155646908506,
+      "median": 0.06963454366121737
+     },
+     "prediction_sd": {
+      "mean": 0.005597573936104238,
+      "median": 0.005835926984610942
+     }
+    },
+    "ArcTanh-LIME": {
+     "pairwise_cosine": {
+      "mean": 0.589772573617159,
+      "median": 0.9571088816605343
+     },
+     "relative_spread": {
+      "mean": 0.3409552612831046,
+      "median": 0.08557602894584532
+     },
+     "prediction_sd": {
+      "mean": 0.002217142155227026,
+      "median": 7.881686626924278e-06
+     }
+    }
+   }
+  },
+  "friedman_mlp": {
+   "title": "Friedman #1 - MLP",
+   "methods": {
+    "LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9942997841950139,
+      "median": 0.9960282526936506
+     },
+     "relative_spread": {
+      "mean": 0.06735531745583842,
+      "median": 0.0649976787893646
+     },
+     "prediction_sd": {
+      "mean": 0.10449757147711107,
+      "median": 0.10667845900266007
+     }
+    },
+    "ArcTanh-LIME": {
+     "pairwise_cosine": {
+      "mean": 0.9958174912374532,
+      "median": 0.996716602663151
+     },
+     "relative_spread": {
+      "mean": 0.057349932309054295,
+      "median": 0.05592020063513621
+     },
+     "prediction_sd": {
+      "mean": 0.10666160181206877,
+      "median": 0.1051232239021242
+     }
+    }
+   }
+  }
+ }
+}
