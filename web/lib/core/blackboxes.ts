@@ -1,5 +1,5 @@
 /** The black boxes used by the demos: the 1-D curves of atlime/datasets.py and MLP inference. */
-import { sigmoid, sumprod } from "./numeric.ts";
+import { fsum, sigmoid, sumprod } from "./numeric.ts";
 
 export const ONE_D_FUNCTIONS = {
   logistic: (x: number) => sigmoid(2 * x),
@@ -41,4 +41,29 @@ export function mlpPredictor(m: MlpWeights): (x: number[]) => number {
     const o = a[0];
     return m.output === "sigmoid" ? sigmoid(o) : m.y_mean + m.y_std * o;
   };
+}
+
+export interface TreeWeights {
+  feature: number[];
+  threshold: number[];
+  left: number[];
+  right: number[];
+  value: number[];
+}
+
+export interface GbmWeights {
+  type: "gradient_boosting";
+  f0: number;
+  learning_rate: number;
+  trees: TreeWeights[];
+}
+
+/** Inference identical to atlime.models.GradientBoosting.predict (fsum over trees, then sigmoid). */
+export function gbmPredictor(m: GbmWeights): (x: number[]) => number {
+  const leaf = (t: TreeWeights, x: number[]) => {
+    let node = 0;
+    while (t.feature[node] >= 0) node = x[t.feature[node]] <= t.threshold[node] ? t.left[node] : t.right[node];
+    return t.value[node];
+  };
+  return (x: number[]) => sigmoid(m.f0 + m.learning_rate * fsum(m.trees.map((t) => leaf(t, x))));
 }

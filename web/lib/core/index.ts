@@ -16,5 +16,5 @@ export { ArcTanhLime, DEFAULT_ARCTANH, fitTanhOutput } from "./arctanh.ts";
 export type { ArcTanhConfig, ArcTanhResult } from "./arctanh.ts";
 export { anchorPoints, DEFAULT_DELTA, DeltaAnchorEnsemble } from "./ensemble.ts";
 export type { DeltaConfig, EnsembleResult } from "./ensemble.ts";
-export { mlpPredictor, ONE_D_DOMAIN, ONE_D_FUNCTIONS } from "./blackboxes.ts";
-export type { MlpWeights, OneDName } from "./blackboxes.ts";
+export { gbmPredictor, mlpPredictor, ONE_D_DOMAIN, ONE_D_FUNCTIONS } from "./blackboxes.ts";
+export type { GbmWeights, MlpWeights, OneDName, TreeWeights } from "./blackboxes.ts";
